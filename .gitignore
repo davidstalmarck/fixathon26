@@ -21,8 +21,12 @@ build/
 # Output files
 pubmed_results.json
 pubmed_results.csv
+pubmed-ids-results/
+pubmed-articles/
 *.csv
 *.json
+*.pdf
+*.xml
 
 # IDE
 .vscode/

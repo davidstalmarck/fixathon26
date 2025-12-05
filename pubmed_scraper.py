@@ -72,12 +72,14 @@ class PubMedScraper:
             print(f"Search error: {e}")
             return []
 
-    def fetch_details(self, pmids: List[str]) -> List[Dict]:
+    def fetch_details(self, pmids: List[str], batch_size: int = 200) -> List[Dict]:
         """
         Fetch detailed article information for given PMIDs
+        Processes in batches to avoid URL length limits
 
         Args:
             pmids: List of PubMed IDs
+            batch_size: Number of PMIDs to fetch per request (default: 200)
 
         Returns:
             List of article dictionaries with parsed metadata
@@ -85,28 +87,40 @@ class PubMedScraper:
         if not pmids:
             return []
 
-        # EFetch returns XML format for detailed data
-        params = {
-            'db': 'pubmed',
-            'id': ','.join(pmids),
-            'retmode': 'xml'
-        }
+        all_articles = []
+        total_batches = (len(pmids) + batch_size - 1) // batch_size
 
-        if self.email:
-            params['email'] = self.email
-        if self.api_key:
-            params['api_key'] = self.api_key
+        # Process PMIDs in batches
+        for i in range(0, len(pmids), batch_size):
+            batch = pmids[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            print(f"Fetching batch {batch_num}/{total_batches} ({len(batch)} articles)...")
 
-        try:
-            time.sleep(self.rate_limit_delay)  # Respect rate limits
-            response = requests.get(self.EFETCH_URL, params=params)
-            response.raise_for_status()
+            # EFetch returns XML format for detailed data
+            params = {
+                'db': 'pubmed',
+                'id': ','.join(batch),
+                'retmode': 'xml'
+            }
 
-            return self._parse_xml_response(response.text)
+            if self.email:
+                params['email'] = self.email
+            if self.api_key:
+                params['api_key'] = self.api_key
 
-        except requests.exceptions.RequestException as e:
-            print(f"Fetch error: {e}")
-            return []
+            try:
+                time.sleep(self.rate_limit_delay)  # Respect rate limits
+                response = requests.get(self.EFETCH_URL, params=params)
+                response.raise_for_status()
+
+                articles = self._parse_xml_response(response.text)
+                all_articles.extend(articles)
+
+            except requests.exceptions.RequestException as e:
+                print(f"Fetch error for batch {batch_num}: {e}")
+                continue
+
+        return all_articles
 
     def _parse_xml_response(self, xml_text: str) -> List[Dict]:
         """Parse XML response from EFetch into structured data"""
@@ -228,8 +242,8 @@ def main():
     scraper = PubMedScraper(email=email, api_key=api_key)
 
     # Search and scrape
-    query = 'neuroscience intervention learning'
-    articles = scraper.scrape(query, max_results=100)
+    query = '\methane reduction\ AND rumen AND (compound OR additive OR substrate)'
+    articles = scraper.scrape(query, max_results=10000)
 
     # Display first article
     if articles:
