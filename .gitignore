@@ -25,7 +25,8 @@ pubmed-ids-results/
 pubmed-articles/
 *.csv
 *.json
-
+.xml
+.pdf
 # IDE
 .vscode/
 .idea/

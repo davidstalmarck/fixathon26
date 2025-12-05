@@ -164,7 +164,8 @@ class ArticleDownloader:
             Dictionary with download status
         """
         pmid = article.get('pmid', '')
-        title = article.get('title', 'Unknown')[:80]
+        title = article.get('title') or 'Unknown'
+        title = title[:80] if title else 'Unknown'
 
         result = {
             'pmid': pmid,
