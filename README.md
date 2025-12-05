@@ -2,6 +2,10 @@
 
 Research engine for for Small Molecules.
 
+## Package Manager
+
+This project uses **pnpm** for the frontend. Always use `pnpm` for installing dependencies and running scripts.
+
 ## Directory Structure
 
 ```
