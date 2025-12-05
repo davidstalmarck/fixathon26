@@ -149,3 +149,6 @@ Thumbs.db
 *.temp
 *.log
 logs/
+
+.specify
+.claude
