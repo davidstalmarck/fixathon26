@@ -15,7 +15,10 @@ ENV/
 .idea/
 *.swp
 *.swo
-
+*.json
+*.xml
+*.pdf
+*.csv
 # Environment variables
 .env
 
