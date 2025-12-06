@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.chat import router as chat_router
 from app.api.molecules import router as molecules_router
 from app.api.research import router as research_router
 from app.config import get_settings
@@ -41,3 +42,4 @@ async def health_check():
 # Include API routers
 app.include_router(research_router, prefix=settings.api_v1_prefix)
 app.include_router(molecules_router, prefix=settings.api_v1_prefix)
+app.include_router(chat_router, prefix=settings.api_v1_prefix)

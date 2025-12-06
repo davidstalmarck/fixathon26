@@ -9,8 +9,10 @@ import React, { JSX, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ResearchInput, type InputMode } from "@/components/features/ResearchInput";
+import { ChatResponse, ChatLoadingIndicator } from "@/components/features/ChatResponse";
 import { ModeToggle } from "@/components/ui/ModeToggle";
 import { useCreateResearchRun } from "@/hooks/useResearchRun";
+import { useChat } from "@/hooks/useChat";
 import { api } from "@/services/api";
 import type { HasMoleculesResponse } from "@/types/molecule";
 import { cn } from "@/utils/cn";
@@ -31,6 +33,9 @@ export default function Home() {
   // Create research run mutation
   const createRun = useCreateResearchRun();
 
+  // Chat functionality
+  const { history, sendMessage, clearHistory, isLoading: chatLoading, error: chatError } = useChat();
+
   const handleSubmit = async (value: string) => {
     if (mode === "research") {
       setIsSubmitting(true);
@@ -42,8 +47,8 @@ export default function Home() {
         console.error("Failed to create research run:", error);
       }
     } else {
-      // Chat mode - will be implemented in Phase 4
-      console.log("Chat message:", value);
+      // Chat mode
+      sendMessage(value);
     }
   };
 
@@ -77,7 +82,7 @@ export default function Home() {
             exit={{ y: -100, opacity: 0, filter: "blur(4px)", rotateX: 25 }}
             animate={{ y: 0, opacity: 1, rotateX: 0 }}
             transition={{ duration: 0.3 }}
-            className="z-2 absolute flex flex-col items-center gap-4"
+            className="z-2 absolute flex flex-col items-center gap-4 w-full max-w-2xl px-4"
           >
             {/* Mode toggle */}
             <ModeToggle
@@ -86,6 +91,23 @@ export default function Home() {
               chatDisabled={!hasMolecules}
               chatDisabledReason="Run a research query first to enable chat"
             />
+
+            {/* Chat messages - only show in chat mode */}
+            {mode === "chat" && (history.length > 0 || chatLoading) && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-xl bg-white/90 backdrop-blur rounded-xl p-4 shadow-lg max-h-80 overflow-y-auto"
+              >
+                <ChatResponse messages={history} onClearHistory={clearHistory} />
+                {chatLoading && <ChatLoadingIndicator />}
+                {chatError && (
+                  <div className="mt-2 p-3 rounded-lg bg-red-50 text-red-600 text-sm">
+                    {chatError.message || "Failed to get response. Please try again."}
+                  </div>
+                )}
+              </motion.div>
+            )}
 
             {/* Input */}
             <ResearchInput
@@ -96,8 +118,8 @@ export default function Home() {
                   ? "Find Methane Inhibitors..."
                   : "Ask about discovered molecules..."
               }
-              disabled={isSubmitting}
-              minLength={10}
+              disabled={isSubmitting || chatLoading}
+              minLength={mode === "research" ? 10 : 1}
             />
           </motion.div>
         )}

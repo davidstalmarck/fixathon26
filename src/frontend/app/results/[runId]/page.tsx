@@ -2,13 +2,16 @@
 
 import { MeshGradient } from "@paper-design/shaders-react";
 import { motion } from "framer-motion";
-import { ArrowLeft, FileText } from "lucide-react";
+import { ArrowLeft, FileText, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
 
 import { MoleculeList } from "@/components/features/MoleculeList";
+import { ChatResponse, ChatLoadingIndicator } from "@/components/features/ChatResponse";
+import { ChatInput } from "@/components/ui/ChatInput";
 import { ProgressIndicator } from "@/components/ui/ProgressIndicator";
 import { useResearchRun, useRunMolecules } from "@/hooks/useResearchRun";
+import { useChat } from "@/hooks/useChat";
 
 interface ResultsPageProps {
   params: Promise<{ runId: string }>;
@@ -21,6 +24,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
     runId,
     run?.status === "complete"
   );
+  const { history, sendMessage, clearHistory, isLoading: chatLoading, error: chatError } = useChat();
 
   const molecules = moleculesData?.molecules ?? [];
 
@@ -156,6 +160,34 @@ export default function ResultsPage({ params }: ResultsPageProps) {
                   emptyMessage="No molecules were discovered for this research query."
                 />
               )}
+            </div>
+
+            {/* Chat section */}
+            <div className="bg-white/90 backdrop-blur rounded-xl p-6 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="size-5 text-gray-600" />
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Ask About This Research
+                </h2>
+              </div>
+
+              {/* Chat messages */}
+              <div className="mb-4 max-h-96 overflow-y-auto">
+                <ChatResponse messages={history} onClearHistory={clearHistory} />
+                {chatLoading && <ChatLoadingIndicator />}
+                {chatError && (
+                  <div className="mt-2 p-3 rounded-lg bg-red-50 text-red-600 text-sm">
+                    {chatError.message || "Failed to get response. Please try again."}
+                  </div>
+                )}
+              </div>
+
+              {/* Chat input */}
+              <ChatInput
+                onSubmit={sendMessage}
+                isLoading={chatLoading}
+                placeholder="Ask about the molecules or papers..."
+              />
             </div>
           </motion.div>
         )}

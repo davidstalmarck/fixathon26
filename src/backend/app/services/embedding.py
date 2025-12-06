@@ -4,41 +4,39 @@ Generates 768-dimensional embeddings for papers and molecules using
 the PubMedBERT model deployed on Modal infrastructure.
 """
 
-import httpx
+import logging
+import modal
 
 from app.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 EMBEDDING_DIMENSION = 768
 
+# Modal app and class configuration
+MODAL_APP_NAME = "jarvis-pubmedbert"
+MODAL_CLASS_NAME = "PubMedBERTEmbedder"
+
 
 class EmbeddingService:
-    """Service for generating embeddings via Modal PubMedBERT endpoint."""
+    """Service for generating embeddings via Modal PubMedBERT."""
 
     def __init__(self):
-        self._client: httpx.AsyncClient | None = None
-        self._endpoint_url: str | None = None
+        self._embedder = None
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
-        if self._client is None:
-            self._client = httpx.AsyncClient(timeout=60.0)
-        return self._client
-
-    async def close(self) -> None:
-        """Close HTTP client."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
-
-    def _get_endpoint_url(self) -> str:
-        """Get Modal endpoint URL from config."""
-        if self._endpoint_url is None:
-            # Modal endpoint format: https://<workspace>--<app>-<function>.modal.run
-            # This should be configured via environment variable
-            self._endpoint_url = settings.modal_embedding_endpoint
-        return self._endpoint_url
+    def _get_embedder(self):
+        """Get or create Modal embedder reference."""
+        if self._embedder is None:
+            try:
+                # Look up the deployed Modal class using from_name
+                EmbedderCls = modal.Cls.from_name(MODAL_APP_NAME, MODAL_CLASS_NAME)
+                self._embedder = EmbedderCls()
+                logger.info(f"Connected to Modal embedder: {MODAL_APP_NAME}/{MODAL_CLASS_NAME}")
+            except Exception as e:
+                logger.error(f"Failed to connect to Modal embedder: {e}")
+                raise
+        return self._embedder
 
     async def generate_embedding(self, text: str) -> list[float] | None:
         """Generate embedding for a single text.
@@ -66,41 +64,30 @@ class EmbeddingService:
 
         # If Modal is not configured, return None for all texts
         if not settings.modal_token_id or not settings.modal_token_secret:
+            logger.warning("Modal tokens not configured, skipping embeddings")
             return [None] * len(texts)
 
         try:
-            client = await self._get_client()
-            endpoint = self._get_endpoint_url()
+            embedder = self._get_embedder()
 
-            # Call Modal endpoint with texts
-            response = await client.post(
-                endpoint,
-                json={"texts": texts},
-                headers={
-                    "Authorization": f"Bearer {settings.modal_token_secret}",
-                },
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            embeddings = data.get("embeddings", [])
-
-            # Validate dimensions
+            # Call generate_embedding for each text
+            # The Modal method takes a single string and returns a list[float]
             validated = []
-            for emb in embeddings:
-                if emb and len(emb) == EMBEDDING_DIMENSION:
-                    validated.append(emb)
-                else:
+            for text in texts:
+                try:
+                    result = embedder.generate_embedding.remote(text)
+                    if result and len(result) == EMBEDDING_DIMENSION:
+                        validated.append(result)
+                    else:
+                        validated.append(None)
+                except Exception as e:
+                    logger.warning(f"Failed to embed text: {e}")
                     validated.append(None)
-
-            # Pad with None if fewer embeddings returned
-            while len(validated) < len(texts):
-                validated.append(None)
 
             return validated
 
-        except (httpx.HTTPError, KeyError, ValueError):
-            # Return None for all texts on error
+        except Exception as e:
+            logger.exception(f"Error generating embeddings: {e}")
             return [None] * len(texts)
 
     async def embed_paper_summary(self, title: str, summary: str) -> list[float] | None:
