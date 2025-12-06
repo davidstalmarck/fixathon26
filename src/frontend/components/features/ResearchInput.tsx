@@ -26,14 +26,27 @@ export function ResearchInput({
 }: ResearchInputProps) {
   const [ref, bounds] = useMeasure();
   const [inputValue, setInputValue] = useState("");
+  const [showError, setShowError] = useState(false);
 
   const handleSubmit = () => {
     if (disabled) return;
-    if (mode === "research" && inputValue.length < minLength) return;
+    if (mode === "research" && inputValue.length < minLength) {
+      setShowError(true);
+      return;
+    }
     if (inputValue.trim().length === 0) return;
 
     onSubmit(inputValue.trim());
     setInputValue("");
+    setShowError(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
+    // Clear error when user types enough characters
+    if (e.target.value.length >= minLength) {
+      setShowError(false);
+    }
   };
 
   const isValid = mode === "chat" || inputValue.length >= minLength;
@@ -41,9 +54,9 @@ export function ResearchInput({
   return (
     <motion.div
       layout
-      className="z-2 w-full max-w-sm rounded-3xl bg-white text-lg shadow-lg"
+      className="z-2 w-full min-w-sm max-w-sm rounded-3xl bg-white text-lg shadow-lg"
     >
-      <div className="flex justify-between p-2">
+      <div className="relative flex justify-between p-2">
         <div className="flex w-full items-center gap-1">
           <button className="absolute bottom-2 left-2 flex size-11 items-center justify-center rounded-full p-1">
             {mode === "research" ? (
@@ -77,7 +90,7 @@ export function ResearchInput({
                 disabled && "opacity-50 cursor-not-allowed",
               )}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={handleInputChange}
               disabled={disabled}
             />
           </motion.div>
@@ -117,16 +130,18 @@ export function ResearchInput({
           </AnimatePresence>
         </div>
       </div>
-      {mode === "research" && inputValue.length > 0 && inputValue.length < minLength && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          className="px-4 pb-2 text-xs text-orange-600"
-        >
-          Research queries need at least {minLength} characters ({inputValue.length}/{minLength})
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {showError && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 pb-3 text-xs text-orange-600 text-center"
+          >
+            Research queries need at least {minLength} characters ({inputValue.length}/{minLength})
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

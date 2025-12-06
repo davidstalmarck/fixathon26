@@ -21,25 +21,22 @@ export function ModeToggle({
 }: ModeToggleProps) {
   return (
     <div className="relative flex rounded-full bg-white/80 p-1 shadow-sm backdrop-blur">
-      <motion.div
-        className="absolute inset-y-1 rounded-full bg-[#121212]"
-        layout
-        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-        style={{
-          left: mode === "research" ? 4 : "50%",
-          right: mode === "research" ? "50%" : 4,
-        }}
-      />
-
       <button
         onClick={() => onModeChange("research")}
         className={cn(
-          "relative z-10 flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors",
+          "relative z-10 flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap",
           mode === "research" ? "text-white" : "text-gray-600 hover:text-gray-900",
         )}
       >
-        <Search className="size-4" />
-        <span>New Research</span>
+        {mode === "research" && (
+          <motion.div
+            layoutId="mode-toggle-bg"
+            className="absolute inset-0 rounded-full bg-[#121212]"
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          />
+        )}
+        <Search className="relative size-4 shrink-0" />
+        <span className="relative">New Research</span>
       </button>
 
       <button
@@ -47,13 +44,20 @@ export function ModeToggle({
         disabled={chatDisabled}
         title={chatDisabled ? chatDisabledReason : undefined}
         className={cn(
-          "relative z-10 flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors",
+          "relative z-10 flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap",
           mode === "chat" ? "text-white" : "text-gray-600",
           chatDisabled ? "opacity-40 cursor-not-allowed" : "hover:text-gray-900",
         )}
       >
-        <MessageSquare className="size-4" />
-        <span>Chat</span>
+        {mode === "chat" && (
+          <motion.div
+            layoutId="mode-toggle-bg"
+            className="absolute inset-0 rounded-full bg-[#121212]"
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          />
+        )}
+        <MessageSquare className="relative size-4 shrink-0" />
+        <span className="relative">Chat</span>
       </button>
     </div>
   );

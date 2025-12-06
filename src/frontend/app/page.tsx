@@ -93,7 +93,7 @@ export default function Home() {
               onSubmit={handleSubmit}
               placeholder={
                 mode === "research"
-                  ? "Describe your research problem..."
+                  ? "Find Methane Inhibitors..."
                   : "Ask about discovered molecules..."
               }
               disabled={isSubmitting}
