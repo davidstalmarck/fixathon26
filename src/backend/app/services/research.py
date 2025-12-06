@@ -17,7 +17,7 @@ from app.models.paper_summary import PaperSummary
 from app.models.research_run import ResearchRun, ResearchStatus
 from app.models.research_run_molecule import ResearchRunMolecule
 from app.services.embedding import get_embedding_service
-from app.services.extraction import ExtractionResult, extract_molecules
+from app.services.extraction import ExtractionResult, get_extraction_service
 from app.services.pubmed import search_pubmed
 
 
@@ -122,23 +122,29 @@ async def execute_research_pipeline(db: AsyncSession, run_id: UUID) -> None:
         return
 
     try:
-        # Update status to processing
+        # Update status to processing and commit immediately so UI sees it
         run.status = ResearchStatus.PROCESSING
-        await db.flush()
+        await db.commit()
 
         # Step 1: Search PubMed
         papers = await search_pubmed(run.query, max_results=30)
         if not papers:
             run.status = ResearchStatus.COMPLETE
             run.completed_at = datetime.now(timezone.utc)
-            await db.flush()
+            await db.commit()
             return
 
-        # Step 2: Extract molecules from papers
-        extraction_results = await extract_molecules(papers, run.query)
+        # Step 2-3: Process papers incrementally (extract + store one at a time)
+        extraction_service = get_extraction_service()
+        for paper in papers:
+            # Extract molecules from this paper
+            result = await extraction_service.extract_from_paper(paper, run.query)
 
-        # Step 3: Store paper summaries and molecules
-        await _store_extraction_results(db, run, extraction_results)
+            # Store this paper's results immediately
+            await _store_single_paper_result(db, run, result)
+
+            # Commit after each paper so counts are visible to polling clients
+            await db.commit()
 
         # Step 4: Generate embeddings (optional, async)
         await _generate_embeddings(db, run_id)
@@ -146,14 +152,14 @@ async def execute_research_pipeline(db: AsyncSession, run_id: UUID) -> None:
         # Mark as complete
         run.status = ResearchStatus.COMPLETE
         run.completed_at = datetime.now(timezone.utc)
-        await db.flush()
+        await db.commit()
 
     except Exception as e:
         # Mark as failed
         run.status = ResearchStatus.FAILED
         run.error_message = str(e)
         run.completed_at = datetime.now(timezone.utc)
-        await db.flush()
+        await db.commit()
         raise
 
 
@@ -193,6 +199,41 @@ async def _store_extraction_results(
             )
 
     await db.flush()
+
+
+async def _store_single_paper_result(
+    db: AsyncSession, run: ResearchRun, result: ExtractionResult
+) -> None:
+    """Store a single paper's extraction results.
+
+    Args:
+        db: Database session
+        run: Research run
+        result: Extraction result from a single paper
+    """
+    # Create paper summary
+    paper = PaperSummary(
+        research_run_id=run.id,
+        pubmed_id=result.paper_pmid,
+        title=result.paper_title,
+        summary=result.paper_summary or result.paper_abstract[:500],
+        source_url=f"https://pubmed.ncbi.nlm.nih.gov/{result.paper_pmid}/",
+    )
+    db.add(paper)
+    await db.flush()
+
+    # Process each molecule
+    for extracted in result.molecules:
+        # Find or create molecule (deduplication)
+        molecule = await _find_or_create_molecule(db, extracted)
+
+        # Link molecule to research run
+        await _link_molecule_to_run(db, run.id, molecule.id, extracted.relevance_score)
+
+        # Link molecule to paper
+        await _link_molecule_to_paper(
+            db, molecule.id, paper.id, extracted.context_excerpt
+        )
 
 
 async def _find_or_create_molecule(

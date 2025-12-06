@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Loader2, CheckCircle, XCircle, Clock, Search } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Search } from "lucide-react";
 
 import { cn } from "@/utils/cn";
 import type { ResearchStatus } from "@/types/research";
@@ -14,7 +14,7 @@ interface ProgressIndicatorProps {
 }
 
 interface StatusConfig {
-  icon: typeof Clock;
+  icon: typeof Loader2;
   text: string;
   description: string;
   color: string;
@@ -24,11 +24,12 @@ interface StatusConfig {
 
 const statusConfig: Record<ResearchStatus, StatusConfig> = {
   queued: {
-    icon: Clock,
-    text: "Queued",
-    description: "Waiting to start processing...",
-    color: "text-gray-500",
-    bgColor: "bg-gray-100",
+    icon: Loader2,
+    text: "Starting",
+    description: "Initializing research pipeline...",
+    color: "text-blue-600",
+    bgColor: "bg-blue-100",
+    animate: true,
   },
   processing: {
     icon: Loader2,
@@ -95,7 +96,7 @@ export function ProgressIndicator({
           </p>
         </div>
 
-        {(status === "processing" || status === "complete") && (
+        {(status === "queued" || status === "processing" || status === "complete") && (
           <div className="flex gap-4 mt-2 text-sm text-gray-500">
             <div className="flex items-center gap-1">
               <Search className="size-4" />
