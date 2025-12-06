@@ -25,6 +25,10 @@ from app.schemas.paper import (
     PaperSummaryList,
 )
 
+# Rebuild models with forward references now that all types are available
+MoleculeDetail.model_rebuild()
+PaperSummary.model_rebuild()
+
 __all__ = [
     # Research
     "CreateResearchRunRequest",

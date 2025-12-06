@@ -28,7 +28,7 @@ async def check_concurrent_run(db: AsyncSession) -> bool:
         True if a run is in progress, False otherwise
     """
     stmt = select(ResearchRun).where(
-        ResearchRun.status.in_([ResearchStatus.QUEUED, ResearchStatus.PROCESSING])
+        ResearchRun.status.in_([ResearchStatus.QUEUED.value, ResearchStatus.PROCESSING.value])
     )
     result = await db.execute(stmt)
     return result.first() is not None

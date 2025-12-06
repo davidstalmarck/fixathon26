@@ -62,15 +62,23 @@ async def create_run(
 
 async def _run_pipeline_task(run_id: UUID) -> None:
     """Background task to execute the research pipeline."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting background pipeline for run {run_id}")
+    print(f"[BACKGROUND] Starting pipeline for run {run_id}", flush=True)
+
     from app.db.session import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         try:
             await execute_research_pipeline(db, run_id)
             await db.commit()
-        except Exception:
+            logger.info(f"Pipeline completed for run {run_id}")
+            print(f"[BACKGROUND] Pipeline completed for run {run_id}", flush=True)
+        except Exception as e:
             await db.rollback()
-            # Error is already stored in run.error_message by execute_research_pipeline
+            logger.error(f"Pipeline failed for run {run_id}: {e}")
+            print(f"[BACKGROUND] Pipeline failed for run {run_id}: {e}", flush=True)
 
 
 @router.get("/{run_id}", response_model=ResearchRunDetail)

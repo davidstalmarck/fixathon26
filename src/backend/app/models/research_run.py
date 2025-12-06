@@ -32,7 +32,12 @@ class ResearchRun(Base, UUIDMixin, TimestampMixin):
 
     query: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[ResearchStatus] = mapped_column(
-        Enum(ResearchStatus, name="research_status", create_constraint=True),
+        Enum(
+            ResearchStatus,
+            name="research_status",
+            create_constraint=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=ResearchStatus.QUEUED,
         nullable=False,
     )
