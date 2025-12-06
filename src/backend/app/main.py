@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.chat import router as chat_router
 from app.api.molecules import router as molecules_router
 from app.api.research import router as research_router
+from app.api.summaries import router as summaries_router
 from app.config import get_settings
 
 settings = get_settings()
@@ -43,3 +44,4 @@ async def health_check():
 app.include_router(research_router, prefix=settings.api_v1_prefix)
 app.include_router(molecules_router, prefix=settings.api_v1_prefix)
 app.include_router(chat_router, prefix=settings.api_v1_prefix)
+app.include_router(summaries_router, prefix=settings.api_v1_prefix)

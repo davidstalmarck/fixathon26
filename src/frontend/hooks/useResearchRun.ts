@@ -7,10 +7,12 @@ import {
   createResearchRun,
   getResearchRun,
   getRunMolecules,
+  getRunSummaries,
   retryResearchRun,
 } from "@/services/research";
 import type { CreateResearchRunRequest, ResearchRunDetail } from "@/types/research";
 import type { MoleculeList } from "@/types/molecule";
+import type { PaperSummaryList } from "@/types/api";
 
 const POLLING_INTERVAL = 5000; // 5 seconds
 
@@ -21,6 +23,7 @@ export const researchKeys = {
   all: ["research"] as const,
   run: (id: string) => [...researchKeys.all, "run", id] as const,
   molecules: (id: string) => [...researchKeys.all, "molecules", id] as const,
+  summaries: (id: string) => [...researchKeys.all, "summaries", id] as const,
 };
 
 /**
@@ -92,5 +95,19 @@ export function useRetryResearchRun() {
       // Invalidate the specific run query to refetch
       queryClient.invalidateQueries({ queryKey: researchKeys.run(data.id) });
     },
+  });
+}
+
+/**
+ * Hook for fetching paper summaries from a research run.
+ */
+export function useRunSummaries(runId: string | null, enabled: boolean = true) {
+  return useQuery<PaperSummaryList | null>({
+    queryKey: researchKeys.summaries(runId ?? ""),
+    queryFn: async () => {
+      if (!runId) return null;
+      return getRunSummaries(runId);
+    },
+    enabled: !!runId && enabled,
   });
 }

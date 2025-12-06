@@ -10,6 +10,7 @@ import type {
   ResearchRunList,
 } from "@/types/research";
 import type { MoleculeList } from "@/types/molecule";
+import type { PaperSummaryList } from "@/types/api";
 
 /**
  * Create a new research run.
@@ -49,4 +50,11 @@ export async function listResearchRuns(
  */
 export async function retryResearchRun(runId: string): Promise<ResearchRun> {
   return api.post<ResearchRun>(`/research/${runId}/retry`);
+}
+
+/**
+ * Get paper summaries for a research run.
+ */
+export async function getRunSummaries(runId: string): Promise<PaperSummaryList> {
+  return api.get<PaperSummaryList>(`/research/${runId}/summaries`);
 }
