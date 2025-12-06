@@ -142,6 +142,18 @@ ehthumbs.db
 Thumbs.db
 
 # ================================
+# Docker
+# ================================
+# Keep docker-compose.yml tracked, ignore overrides
+docker-compose.override.yml
+
+# ================================
+# Database
+# ================================
+*.sql
+*.dump
+
+# ================================
 # Misc
 # ================================
 *.bak
