@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+
+# Data directories (these stay at project root)
+# ../pubmed-articles/
+# ../pubmed-ids-results/
+
+# Test outputs
+*.log
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
