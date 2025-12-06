@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Process Articles with Claude AI
-Extract summaries, topics, keywords, and molecules from full-text articles
+Process Articles with Multi-Stage Claude AI Pipeline
+Uses multiple specialized prompts for high-quality extraction
 """
 
 import os
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 from xml.etree import ElementTree as ET
 import anthropic
@@ -27,23 +27,38 @@ if not CLAUDE_API_KEY:
     raise ValueError("CLAUDE_API_KEY not found in .env file")
 
 
-class ArticleProcessor:
-    """Process articles using Claude AI to extract structured information"""
+class MultiStageArticleProcessor:
+    """Process articles using multiple specialized Claude prompts"""
 
     def __init__(self, api_key: str):
         """Initialize processor with Claude API key"""
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = "claude-sonnet-4-20250514"  # Claude Sonnet 4
+        self.model = "claude-sonnet-4-20250514"
 
-    def clean_xml_text(self, xml_path: Path) -> str:
+    def extract_pmid_from_filename(self, filename: str) -> Optional[str]:
         """
-        Extract and clean text from XML article
+        Extract PMID from filename
+
+        Args:
+            filename: XML filename (e.g., "PMC12345_PMID67890.xml")
+
+        Returns:
+            PMID string or None
+        """
+        match = re.search(r'PMID(\d+)', filename)
+        if match:
+            return match.group(1)
+        return None
+
+    def clean_xml_text(self, xml_path: Path) -> Dict[str, str]:
+        """
+        Extract and clean text sections from XML article
 
         Args:
             xml_path: Path to XML file
 
         Returns:
-            Cleaned text content
+            Dictionary with title, abstract, and body text
         """
         try:
             tree = ET.parse(xml_path)
@@ -51,15 +66,22 @@ class ArticleProcessor:
 
             # Extract title
             title_elem = root.find('.//article-title')
-            title = title_elem.text if title_elem is not None and title_elem.text else ""
+            title = ""
+            if title_elem is not None:
+                # Get all text including from nested elements
+                title_parts = []
+                for text in title_elem.itertext():
+                    if text.strip():
+                        title_parts.append(text.strip())
+                title = ' '.join(title_parts)
 
             # Extract abstract
             abstract_parts = []
             for abstract in root.findall('.//abstract'):
                 for elem in abstract.iter():
-                    if elem.text:
+                    if elem.text and elem.text.strip():
                         abstract_parts.append(elem.text.strip())
-                    if elem.tail:
+                    if elem.tail and elem.tail.strip():
                         abstract_parts.append(elem.tail.strip())
             abstract = ' '.join(abstract_parts)
 
@@ -67,173 +89,329 @@ class ArticleProcessor:
             body_parts = []
             for body in root.findall('.//body'):
                 for elem in body.iter():
-                    if elem.text:
+                    if elem.text and elem.text.strip():
                         body_parts.append(elem.text.strip())
-                    if elem.tail:
+                    if elem.tail and elem.tail.strip():
                         body_parts.append(elem.tail.strip())
             body = ' '.join(body_parts)
 
-            # Combine all text
-            full_text = f"Title: {title}\n\nAbstract: {abstract}\n\nBody: {body}"
-
             # Clean up whitespace
-            full_text = re.sub(r'\s+', ' ', full_text)
-            full_text = re.sub(r'\n\s*\n', '\n\n', full_text)
+            title = re.sub(r'\s+', ' ', title).strip()
+            abstract = re.sub(r'\s+', ' ', abstract).strip()
+            body = re.sub(r'\s+', ' ', body).strip()
 
-            return full_text.strip()
+            return {
+                'title': title,
+                'abstract': abstract,
+                'body': body
+            }
 
         except Exception as e:
-            print(f"Error parsing XML {xml_path}: {e}")
-            return ""
+            print(f"  ✗ Error parsing XML: {e}")
+            return {'title': '', 'abstract': '', 'body': ''}
 
-    def extract_with_claude(self, text: str, pmid: str) -> Dict:
+    def stage1_clean_text(self, text_sections: Dict[str, str]) -> str:
         """
-        Use Claude to extract structured information from article text
+        Stage 1: Clean and prepare text using Claude
+        Removes XML artifacts, fixes formatting, prepares for analysis
 
         Args:
-            text: Article full text
-            pmid: PubMed ID for reference
+            text_sections: Dictionary with title, abstract, body
 
         Returns:
-            Dictionary with extracted information
+            Cleaned text ready for analysis
         """
-        # Truncate if too long (Claude has ~200k token limit)
-        max_chars = 400000  # ~100k tokens
-        if len(text) > max_chars:
-            text = text[:max_chars] + "\n\n[Article truncated due to length]"
+        combined_text = f"""Title: {text_sections['title']}
 
-        prompt = f"""You are analyzing a scientific article about rumen fermentation and methane reduction. Your task is to extract structured information from this article.
+Abstract:
+{text_sections['abstract']}
+
+Full Text:
+{text_sections['body']}"""
+
+        # Truncate if too long
+        max_chars = 300000
+        if len(combined_text) > max_chars:
+            combined_text = combined_text[:max_chars] + "\n\n[Article truncated]"
+
+        prompt = """You are a scientific text cleaning assistant. Clean and format this scientific article text.
+
+Remove:
+- XML artifacts and encoding issues
+- Excessive whitespace and formatting issues
+- References to figures/tables that aren't present (e.g., "Figure 1", "Table 2")
+- Copyright notices and publication metadata
+- Author information blocks
+
+Keep:
+- All scientific content
+- Chemical names and formulas
+- Experimental methods and results
+- All measurements and data
+
+Return the cleaned text in a clear, readable format with proper paragraphs. Keep all technical and scientific content intact.
 
 Article text:
-{text}
-
-Please analyze this article and provide the following information in JSON format:
-
-1. **summary**: A concise 2-3 sentence summary of the article's main findings and contributions.
-
-2. **topics**: 3-5 short topic tags (1-2 words each) that describe the main themes. Use hyphens for multi-word topics (e.g., "methane-reduction", "rumen-fermentation"). Focus on scientific concepts.
-
-3. **keywords**: 5-10 relevant scientific keywords or key phrases from the article. These should be specific terms used in the research.
-
-4. **molecules**: A comprehensive list of ALL chemical compounds, molecules, substrates, or additives mentioned in the article. This is CRITICAL - include:
-   - All chemical names (e.g., "nitrate", "fumarate", "3-NOP")
-   - All compound classes (e.g., "fatty acids", "tannins", "flavonoids")
-   - All substrates or additives tested (e.g., "corn silage", "soybean meal")
-   - All metabolites mentioned (e.g., "propionate", "butyrate", "acetate")
-   - Be thorough - this is the most important extraction task
-
-Return ONLY valid JSON in this exact format:
-{{
-  "pmid": "{pmid}",
-  "summary": "...",
-  "topics": ["topic-1", "topic-2", "topic-3"],
-  "keywords": ["keyword1", "keyword2", ...],
-  "molecules": ["molecule1", "molecule2", ...]
-}}
-
-Be extremely thorough with the molecules list - scan the entire article carefully."""
+""" + combined_text
 
         try:
-            print(f"  Sending {len(text):,} chars to Claude...")
-            message = self.client.messages.create(
+            print(f"    Stage 1: Cleaning text...")
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            cleaned_text = response.content[0].text
+            print(f"    ✓ Text cleaned ({len(cleaned_text):,} chars)")
+            return cleaned_text
+
+        except Exception as e:
+            print(f"    ✗ Stage 1 error: {e}")
+            return combined_text
+
+    def stage2_comprehensive_summary(self, cleaned_text: str, pmid: str) -> str:
+        """
+        Stage 2: Write comprehensive 1-2 page summary
+
+        Args:
+            cleaned_text: Cleaned article text
+            pmid: PubMed ID
+
+        Returns:
+            Detailed summary
+        """
+        prompt = f"""You are a scientific writer specializing in rumen fermentation and methane reduction research.
+
+Write a comprehensive 1-2 page summary of this scientific article. Your summary should include:
+
+1. **Background & Context**: What problem does this research address?
+2. **Research Objectives**: What were the specific goals or hypotheses?
+3. **Methods**: What experimental approach was used? (animals, treatments, measurements)
+4. **Key Findings**: What were the main results and observations?
+5. **Mechanisms**: How do the authors explain the observed effects?
+6. **Significance**: Why are these findings important for the field?
+7. **Limitations & Future Directions**: Any caveats or suggested next steps?
+
+Write in clear, technical prose suitable for researchers in the field. Focus on scientific accuracy and completeness.
+
+Article text:
+{cleaned_text}
+
+PMID: {pmid}
+
+Write your comprehensive summary below:"""
+
+        try:
+            print(f"    Stage 2: Generating comprehensive summary...")
+            response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
+            )
+            summary = response.content[0].text
+            print(f"    ✓ Summary generated ({len(summary):,} chars)")
+            return summary
+
+        except Exception as e:
+            print(f"    ✗ Stage 2 error: {e}")
+            return ""
+
+    def stage3_extract_molecules(self, cleaned_text: str) -> List[str]:
+        """
+        Stage 3: Extract ALL molecules with specialized focus
+
+        Args:
+            cleaned_text: Cleaned article text
+
+        Returns:
+            List of molecules
+        """
+        prompt = """You are a chemistry expert specializing in identifying chemical compounds in scientific literature.
+
+Your task: Extract EVERY chemical compound, molecule, substrate, additive, or metabolite mentioned in this article.
+
+Include:
+- **Chemical names**: nitrate, fumarate, 3-nitrooxypropanol (3-NOP), bromochloromethane, etc.
+- **Compound classes**: fatty acids, tannins, saponins, flavonoids, terpenes, quinones, etc.
+- **Feed ingredients**: corn silage, alfalfa hay, soybean meal, rice straw, wheat straw, etc.
+- **Metabolites**: propionate, butyrate, acetate, lactate, succinate, etc.
+- **Gases**: methane, carbon dioxide, hydrogen, hydrogen sulfide, etc.
+- **Enzymes**: cellulase, xylanase, lipase, protease, etc.
+- **Minerals**: calcium, phosphorus, magnesium, sodium, potassium, etc.
+- **Vitamins**: vitamin A, vitamin E, etc.
+- **Acids**: acetic acid, propionic acid, butyric acid, lactic acid, etc.
+- **Specific compounds**: monensin, lasalocid, etc.
+
+Be EXTREMELY thorough - this is critical data. Scan the entire article carefully.
+
+Return ONLY a JSON array of molecules:
+["molecule1", "molecule2", "molecule3", ...]
+
+Article text:
+""" + cleaned_text
+
+        try:
+            print(f"    Stage 3: Extracting molecules...")
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}]
             )
 
-            response_text = message.content[0].text
-            print(f"  Received response from Claude ({len(response_text)} chars)")
+            response_text = response.content[0].text
 
-            # Extract JSON from response (in case Claude adds explanation)
+            # Extract JSON array
+            json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+            if json_match:
+                molecules = json.loads(json_match.group())
+                print(f"    ✓ Found {len(molecules)} molecules")
+                return molecules
+            else:
+                print(f"    ⚠️  Could not parse molecules list")
+                return []
+
+        except Exception as e:
+            print(f"    ✗ Stage 3 error: {e}")
+            return []
+
+    def stage4_extract_topics_keywords(self, cleaned_text: str, pmid: str) -> Dict:
+        """
+        Stage 4: Extract topics and keywords
+
+        Args:
+            cleaned_text: Cleaned article text
+            pmid: PubMed ID
+
+        Returns:
+            Dictionary with topics and keywords
+        """
+        prompt = f"""You are a research librarian specializing in animal science and rumen microbiology.
+
+Analyze this article and extract:
+
+1. **topics**: 5-8 SHORT topic tags (1-3 words each) that categorize this research
+   - Use hyphens for multi-word topics (e.g., "methane-reduction", "in-vitro-fermentation")
+   - Focus on: experimental approach, compounds tested, outcomes measured, animal species
+   - Examples: "methane-inhibition", "rumen-fermentation", "dairy-cattle", "feed-additives"
+
+2. **keywords**: 10-15 specific scientific keywords or key phrases
+   - Use exact terminology from the article
+   - Include: methods, measurements, statistical approaches, specific outcomes
+   - Examples: "volatile fatty acids", "dry matter digestibility", "gas chromatography"
+
+Return ONLY valid JSON:
+{{
+  "pmid": "{pmid}",
+  "topics": ["topic-1", "topic-2", ...],
+  "keywords": ["keyword1", "keyword2", ...]
+}}
+
+Article text:
+{cleaned_text}"""
+
+        try:
+            print(f"    Stage 4: Extracting topics and keywords...")
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = response.content[0].text
+
+            # Extract JSON
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 result = json.loads(json_match.group())
-                print(f"  Successfully parsed JSON")
+                print(f"    ✓ Found {len(result.get('topics', []))} topics, {len(result.get('keywords', []))} keywords")
                 return result
             else:
-                print(f"  ⚠️  Could not parse JSON from Claude response")
-                print(f"  Response preview: {response_text[:200]}...")
-                return self._create_empty_result(pmid)
+                print(f"    ⚠️  Could not parse topics/keywords")
+                return {"pmid": pmid, "topics": [], "keywords": []}
 
-        except anthropic.APIError as e:
-            print(f"  ✗ Claude API Error: {e}")
-            print(f"  Error type: {type(e).__name__}")
-            return self._create_empty_result(pmid)
         except Exception as e:
-            print(f"  ✗ Unexpected error calling Claude API: {e}")
-            print(f"  Error type: {type(e).__name__}")
-            import traceback
-            traceback.print_exc()
-            return self._create_empty_result(pmid)
-
-    def _create_empty_result(self, pmid: str) -> Dict:
-        """Create empty result structure"""
-        return {
-            "pmid": pmid,
-            "summary": "",
-            "topics": [],
-            "keywords": [],
-            "molecules": []
-        }
+            print(f"    ✗ Stage 4 error: {e}")
+            return {"pmid": pmid, "topics": [], "keywords": []}
 
     def process_article(self, xml_path: Path) -> Optional[Dict]:
         """
-        Process a single article XML file
+        Process a single article through all stages
 
         Args:
             xml_path: Path to XML file
 
         Returns:
-            Extracted information dictionary or None if already processed
+            Complete analysis results or None if already processed
         """
-        # Extract PMID and PMC ID from filename
-        filename = xml_path.stem  # e.g., "PMC12345_PMID67890"
-        match = re.search(r'PMC(\d+)_PMID(\d+)', filename)
-        if not match:
-            print(f"  ✗ Could not extract IDs from filename: {filename}")
+        # Extract PMID from filename
+        pmid = self.extract_pmid_from_filename(xml_path.name)
+        if not pmid:
+            print(f"  ✗ Could not extract PMID from filename: {xml_path.name}")
             return None
 
-        pmc_id = match.group(1)
-        pmid = match.group(2)
-
         # Check if already processed
-        output_file = SUMMARIES_DIR / f"PMID{pmid}_PMC{pmc_id}.json"
+        output_file = SUMMARIES_DIR / f"PMID{pmid}_analysis.json"
         if output_file.exists():
             print(f"  ✓ Already processed, skipping")
             return None
 
-        print(f"\nProcessing PMC{pmc_id} / PMID {pmid}")
-        print(f"  XML: {xml_path.name}")
+        print(f"\nProcessing PMID {pmid}")
+        print(f"  Source: {xml_path.name}")
 
-        # Clean and extract text from XML
+        # Extract raw text from XML
         print(f"  Extracting text from XML...")
-        text = self.clean_xml_text(xml_path)
+        text_sections = self.clean_xml_text(xml_path)
 
-        if not text or len(text) < 500:
-            print(f"  ✗ Text too short or extraction failed ({len(text)} chars)")
+        if not text_sections['body'] or len(text_sections['body']) < 500:
+            print(f"  ✗ Insufficient text extracted ({len(text_sections.get('body', ''))} chars)")
             return None
 
-        print(f"  Extracted {len(text):,} characters")
+        print(f"  ✓ Extracted: Title={len(text_sections['title'])} chars, "
+              f"Abstract={len(text_sections['abstract'])} chars, "
+              f"Body={len(text_sections['body'])} chars")
 
-        # Extract information with Claude
-        print(f"  Analyzing with Claude...")
-        result = self.extract_with_claude(text, pmid)
+        # Multi-stage processing
+        print(f"\n  Running multi-stage analysis:")
 
-        # Add metadata
-        result['pmc_id'] = pmc_id
-        result['xml_file'] = str(xml_path)
-        result['text_length'] = len(text)
+        # Stage 1: Clean text
+        cleaned_text = self.stage1_clean_text(text_sections)
+
+        # Stage 2: Comprehensive summary
+        comprehensive_summary = self.stage2_comprehensive_summary(cleaned_text, pmid)
+
+        # Stage 3: Extract molecules
+        molecules = self.stage3_extract_molecules(cleaned_text)
+
+        # Stage 4: Topics and keywords
+        topics_keywords = self.stage4_extract_topics_keywords(cleaned_text, pmid)
+
+        # Compile results
+        result = {
+            'pmid': pmid,
+            'xml_file': str(xml_path.name),
+            'title': text_sections['title'],
+            'abstract': text_sections['abstract'],
+            'comprehensive_summary': comprehensive_summary,
+            'topics': topics_keywords.get('topics', []),
+            'keywords': topics_keywords.get('keywords', []),
+            'molecules': molecules,
+            'text_length': {
+                'title': len(text_sections['title']),
+                'abstract': len(text_sections['abstract']),
+                'body': len(text_sections['body']),
+                'cleaned': len(cleaned_text)
+            }
+        }
 
         # Save result
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
 
-        print(f"  ✓ Processed successfully")
-        print(f"    Summary: {result['summary'][:100]}...")
-        print(f"    Topics: {', '.join(result['topics'][:5])}")
-        print(f"    Molecules found: {len(result['molecules'])}")
+        print(f"\n  ✓ Processing complete!")
+        print(f"    Summary: {len(comprehensive_summary):,} chars")
+        print(f"    Topics: {len(result['topics'])}")
+        print(f"    Keywords: {len(result['keywords'])}")
+        print(f"    Molecules: {len(molecules)}")
         print(f"    Saved to: {output_file.name}")
 
         return result
@@ -242,7 +420,7 @@ Be extremely thorough with the molecules list - scan the entire article carefull
 def main():
     """Main processing workflow"""
     print("="*80)
-    print("Article Processing Pipeline with Claude AI")
+    print("Multi-Stage Article Processing Pipeline with Claude AI")
     print("="*80 + "\n")
 
     # Test Claude API connection
@@ -251,11 +429,11 @@ def main():
         test_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         test_response = test_client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=100,
-            messages=[{"role": "user", "content": "Reply with just 'OK'"}]
+            max_tokens=50,
+            messages=[{"role": "user", "content": "Reply with: OK"}]
         )
         print(f"✓ Claude API connected successfully")
-        print(f"  API key: {CLAUDE_API_KEY[:10]}...{CLAUDE_API_KEY[-4:]}\n")
+        print(f"  Model: claude-sonnet-4-20250514\n")
     except Exception as e:
         print(f"✗ Claude API test failed: {e}")
         print(f"  Please check your CLAUDE_API_KEY in .env file")
@@ -269,9 +447,15 @@ def main():
         return
 
     print(f"Found {len(xml_files)} XML files to process\n")
+    print("Processing pipeline:")
+    print("  Stage 1: Clean and prepare text")
+    print("  Stage 2: Generate comprehensive 1-2 page summary")
+    print("  Stage 3: Extract ALL molecules (thorough scan)")
+    print("  Stage 4: Extract topics and keywords")
+    print()
 
     # Initialize processor
-    processor = ArticleProcessor(api_key=CLAUDE_API_KEY)
+    processor = MultiStageArticleProcessor(api_key=CLAUDE_API_KEY)
 
     # Process each article
     results = []
@@ -280,7 +464,8 @@ def main():
     error_count = 0
 
     for idx, xml_path in enumerate(xml_files, 1):
-        print(f"\n[{idx}/{len(xml_files)}]", end=" ")
+        print(f"\n{'='*80}")
+        print(f"[{idx}/{len(xml_files)}]")
 
         try:
             result = processor.process_article(xml_path)
@@ -293,20 +478,23 @@ def main():
 
         except Exception as e:
             print(f"  ✗ Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
             error_count += 1
             continue
 
-        # Save progress every 10 articles
-        if idx % 10 == 0:
+        # Save progress every 5 articles
+        if idx % 5 == 0:
             progress_file = SUMMARIES_DIR / "processing_progress.json"
             with open(progress_file, 'w', encoding='utf-8') as f:
                 json.dump({
                     'processed': processed_count,
                     'skipped': skipped_count,
                     'errors': error_count,
-                    'total': len(xml_files)
+                    'total': len(xml_files),
+                    'last_processed': idx
                 }, f, indent=2)
-            print(f"\n  Progress saved: {processed_count} processed, {skipped_count} skipped")
+            print(f"\n  📊 Progress: {processed_count} processed, {skipped_count} skipped, {error_count} errors")
 
     # Final summary
     print("\n" + "="*80)
@@ -316,24 +504,25 @@ def main():
     print(f"Newly processed: {processed_count}")
     print(f"Already processed (skipped): {skipped_count}")
     print(f"Errors: {error_count}")
-    print(f"\nSummaries saved to: {SUMMARIES_DIR}/")
+    print(f"\nAnalysis files saved to: {SUMMARIES_DIR}/")
     print("="*80)
 
-    # Create a combined index of all processed articles
-    all_summaries = []
-    for summary_file in SUMMARIES_DIR.glob("PMID*.json"):
+    # Create combined index
+    print("\nCreating master index...")
+    all_analyses = []
+    for analysis_file in SUMMARIES_DIR.glob("PMID*_analysis.json"):
         try:
-            with open(summary_file, 'r', encoding='utf-8') as f:
-                all_summaries.append(json.load(f))
+            with open(analysis_file, 'r', encoding='utf-8') as f:
+                all_analyses.append(json.load(f))
         except Exception as e:
-            print(f"Error loading {summary_file}: {e}")
+            print(f"Error loading {analysis_file}: {e}")
 
-    if all_summaries:
-        index_file = SUMMARIES_DIR / "all_summaries_index.json"
+    if all_analyses:
+        index_file = SUMMARIES_DIR / "all_analyses_index.json"
         with open(index_file, 'w', encoding='utf-8') as f:
-            json.dump(all_summaries, f, indent=2, ensure_ascii=False)
-        print(f"\nCreated index of all summaries: {index_file}")
-        print(f"Total articles in index: {len(all_summaries)}")
+            json.dump(all_analyses, f, indent=2, ensure_ascii=False)
+        print(f"✓ Created master index: {index_file}")
+        print(f"  Total articles indexed: {len(all_analyses)}")
 
 
 if __name__ == '__main__':

@@ -1,6 +1,12 @@
 # Environment variables
 .env
 
+# Google Cloud credentials
+*.json
+!pyproject.toml
+service-account*.json
+gcs-key.json
+
 # Python cache
 __pycache__/
 *.py[cod]

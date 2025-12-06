@@ -20,7 +20,7 @@ load_dotenv()
 INPUT_DIR = Path("pubmed-ids-results")
 OUTPUT_DIR = Path("pubmed-articles")
 PDF_DIR = OUTPUT_DIR / "pdfs"
-XML_DIR = OUTPUT_DIR / "xmls"
+XML_DIR = OUTPUT_DIR / "xmls_all"  # Changed to xmls_all to download ALL articles
 
 # Create directories
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -257,7 +257,7 @@ def main():
     )
 
     # Load aggregated results
-    aggregated_file = INPUT_DIR / "aggregated_results1945.json"
+    aggregated_file = INPUT_DIR / "aggregated_results.json"
 
     if not aggregated_file.exists():
         print(f"Error: {aggregated_file} not found!")
