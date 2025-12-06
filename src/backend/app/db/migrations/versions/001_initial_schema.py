@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from pgvector.sqlalchemy import Vector
 
 # revision identifiers, used by Alembic.
@@ -35,7 +36,7 @@ def upgrade() -> None:
         sa.Column("query", sa.Text(), nullable=False),
         sa.Column(
             "status",
-            sa.Enum("queued", "processing", "complete", "failed", name="research_status"),
+            postgresql.ENUM("queued", "processing", "complete", "failed", name="research_status", create_type=False),
             nullable=False,
             server_default="queued",
         ),
