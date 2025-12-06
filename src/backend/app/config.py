@@ -20,9 +20,13 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: str = ""
 
+    # PubMed API (optional, increases rate limit)
+    pubmed_api_key: str = ""
+
     # Modal (PubMedBERT embeddings)
     modal_token_id: str = ""
     modal_token_secret: str = ""
+    modal_embedding_endpoint: str = ""
 
     # Application
     debug: bool = False

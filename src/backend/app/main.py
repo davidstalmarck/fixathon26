@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.molecules import router as molecules_router
+from app.api.research import router as research_router
 from app.config import get_settings
 
 settings = get_settings()
@@ -34,3 +36,8 @@ app.add_middleware(
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+# Include API routers
+app.include_router(research_router, prefix=settings.api_v1_prefix)
+app.include_router(molecules_router, prefix=settings.api_v1_prefix)

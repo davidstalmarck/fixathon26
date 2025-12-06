@@ -2,26 +2,64 @@
 
 import { MeshGradient } from "@paper-design/shaders-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, AudioLines, Mic, Plus } from "lucide-react";
+import { Clock } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import React, { JSX, useMemo, useState } from "react";
-import useMeasure from "react-use-measure";
+import { useQuery } from "@tanstack/react-query";
 
+import { ResearchInput, type InputMode } from "@/components/features/ResearchInput";
+import { ModeToggle } from "@/components/ui/ModeToggle";
+import { useCreateResearchRun } from "@/hooks/useResearchRun";
+import { api } from "@/services/api";
+import type { HasMoleculesResponse } from "@/types/molecule";
 import { cn } from "@/utils/cn";
 
 export default function Home() {
-  const [ref, bounds] = useMeasure();
-  const [inputValue, setInputValue] = useState("");
-  const [isSubmit, setIsSubmit] = useState(false);
+  const router = useRouter();
+  const [mode, setMode] = useState<InputMode>("research");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const onSubmit = () => {
-    setInputValue("");
-    setIsSubmit(true);
+  // Check if molecules exist for chat mode
+  const { data: moleculesCheck } = useQuery({
+    queryKey: ["molecules", "exists"],
+    queryFn: () => api.get<HasMoleculesResponse>("/molecules"),
+  });
+
+  const hasMolecules = moleculesCheck?.hasMolecules ?? false;
+
+  // Create research run mutation
+  const createRun = useCreateResearchRun();
+
+  const handleSubmit = async (value: string) => {
+    if (mode === "research") {
+      setIsSubmitting(true);
+      try {
+        const run = await createRun.mutateAsync({ query: value });
+        router.push(`/results/${run.id}`);
+      } catch (error) {
+        setIsSubmitting(false);
+        console.error("Failed to create research run:", error);
+      }
+    } else {
+      // Chat mode - will be implemented in Phase 4
+      console.log("Chat message:", value);
+    }
   };
 
   return (
     <div className="perspective-near relative flex h-screen w-screen items-center justify-center px-3 text-[#121212]">
+      {/* History icon */}
+      <Link
+        href="/history"
+        className="absolute top-4 right-4 z-20 p-2 rounded-full bg-white/80 backdrop-blur hover:bg-white transition-colors"
+        title="View history"
+      >
+        <Clock className="size-5 text-gray-600" />
+      </Link>
+
       <AnimatePresence mode="popLayout">
-        {isSubmit ? (
+        {isSubmitting ? (
           <motion.div
             key="output"
             initial={{ opacity: 0 }}
@@ -30,7 +68,7 @@ export default function Home() {
             className="absolute z-20 flex h-full w-full items-center justify-center text-center"
           >
             <TextShimmer className="text-lg" duration={1}>
-              Generating Your $Billion Dollar saas...
+              Searching scientific literature...
             </TextShimmer>
           </motion.div>
         ) : (
@@ -39,68 +77,28 @@ export default function Home() {
             exit={{ y: -100, opacity: 0, filter: "blur(4px)", rotateX: 25 }}
             animate={{ y: 0, opacity: 1, rotateX: 0 }}
             transition={{ duration: 0.3 }}
-            layout
-            className="z-2 absolute w-full max-w-sm rounded-3xl bg-white text-lg"
+            className="z-2 absolute flex flex-col items-center gap-4"
           >
-            <div className="flex justify-between p-2">
-              <div className="flex w-full items-center gap-1">
-                <button className="absolute bottom-2 left-2 flex size-11 items-center justify-center rounded-full p-1">
-                  <Plus className="text-muted-foreground size-5" />
-                </button>
-                <motion.div
-                  className="w-full"
-                  initial={false}
-                  animate={{
-                    paddingLeft: inputValue.length > 10 ? "15px" : "38px",
-                    paddingRight: inputValue.length > 10 ? "15px" : "82px",
-                    height: bounds.height || "auto",
-                    marginBottom: inputValue.length > 10 ? "40px" : "0px",
-                  }}
-                >
-                  <textarea
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        onSubmit();
-                      }
-                    }}
-                    placeholder="Ask anything..."
-                    ref={ref}
-                    className={cn(
-                      "field-sizing-content w-full resize-none rounded-md py-2 outline-0 focus-visible:ring-0",
-                    )}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                  />
-                </motion.div>
-              </div>
-              <div className="absolute bottom-2 right-2 flex">
-                <button className="flex size-11 items-center justify-center rounded-full p-1">
-                  <Mic className="size-5" />
-                </button>
+            {/* Mode toggle */}
+            <ModeToggle
+              mode={mode}
+              onModeChange={setMode}
+              chatDisabled={!hasMolecules}
+              chatDisabledReason="Run a research query first to enable chat"
+            />
 
-                {inputValue ? (
-                  <motion.button
-                    initial={{ scale: 0.5 }}
-                    animate={{ scale: 1 }}
-                    key="arrow-up"
-                    className="flex size-11 items-center justify-center rounded-full bg-[#121212] p-1 text-white"
-                  >
-                    <ArrowUp className="size-5" />
-                  </motion.button>
-                ) : (
-                  <motion.button
-                    initial={{ scale: 0.5 }}
-                    animate={{ scale: 1 }}
-                    key="audio-lines"
-                    className="flex size-11 items-center justify-center rounded-full bg-[#121212] p-1 text-white"
-                  >
-                    <AudioLines className="size-5" />
-                  </motion.button>
-                )}
-              </div>
-            </div>
+            {/* Input */}
+            <ResearchInput
+              mode={mode}
+              onSubmit={handleSubmit}
+              placeholder={
+                mode === "research"
+                  ? "Describe your research problem..."
+                  : "Ask about discovered molecules..."
+              }
+              disabled={isSubmitting}
+              minLength={10}
+            />
           </motion.div>
         )}
       </AnimatePresence>
